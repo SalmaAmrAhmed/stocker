@@ -1,0 +1,13 @@
+langchain
+langchain-openai
+langchain_community
+langchain-core
+langgraph
+pandas
+python-dotenv
+streamlit
+yfinance
+openai
+finviz
+watchdog
+IPython
