@@ -6,7 +6,8 @@ from langgraph.graph import StateGraph, END, START
 import yfinance as yf
 import pandas as pd
 import traceback
-from IPython.display import Image, display
+import os
+# from IPython.display import Image, display
 
 
 
@@ -503,7 +504,7 @@ def create_analysis_workflow(llm: ChatOpenAI) -> StateGraph:
 def main():
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
     st.title("📈 Stock Analysis Dashboard")
-    api_key="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"
+    api_key = os.getenv("OPENAI_API_KEY")
     
     with st.sidebar:
         st.header("Configuration")
