@@ -503,7 +503,7 @@ def create_analysis_workflow(llm: ChatOpenAI) -> StateGraph:
 
 def main():
     st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
-    st.title("📈 Stock Analysis Dashboard")
+    st.title("📈 Stock Gazing")
     api_key = os.getenv("OPENAI_API_KEY")
     
     with st.sidebar:
