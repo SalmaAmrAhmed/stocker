@@ -152,10 +152,10 @@ def screen_stocks(state: AgentState) -> AgentState:
     base_stocks = {
         'Test': ['AVGO', 'APP', 'CIEN', 'MELI', 'RGTI', 'PLTR', 'MAGS', 'TSLA', 'IBKR', 'CRWD', 'BLK', 'SPY', 'VGT'],
         'Technology': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NVDA', 'AMD', 'INTC'],
-        'Financial': ['JPM', 'BAC', 'WFC', 'GS', 'MS'],
-        'Healthcare': ['JNJ', 'PFE', 'UNH', 'ABBV', 'MRK'],
-        'Consumer': ['WMT', 'PG', 'KO', 'PEP', 'DIS'],
-        'Industrial': ['BA', 'CAT', 'GE', 'HON', 'MMM']
+        # 'Financial': ['JPM', 'BAC', 'WFC', 'GS', 'MS'],
+        # 'Healthcare': ['JNJ', 'PFE', 'UNH', 'ABBV', 'MRK'],
+        # 'Consumer': ['WMT', 'PG', 'KO', 'PEP', 'DIS'],
+        # 'Industrial': ['BA', 'CAT', 'GE', 'HON', 'MMM']
         
     }
 
