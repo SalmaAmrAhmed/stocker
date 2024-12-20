@@ -28,6 +28,7 @@ class AgentState(TypedDict):
     decisions: Dict[str, str]
     debug_info: Dict[str, Any]
 
+
 def calculate_rsi(prices: pd.Series, period: int = 14) -> float:
     """
     Calculate the Relative Strength Index (RSI) for a given price series.
@@ -41,74 +42,97 @@ def calculate_rsi(prices: pd.Series, period: int = 14) -> float:
         float: RSI value between 0 and 100
     """
     try:
-        # Calculate price changes
         delta = prices.diff()
 
-        # Separate gains and losses
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        
-        # Calculate RS and RSI
+    
         rs = gain / loss
         return float(100 - (100 / (1 + rs.iloc[-1])))
     
     except Exception:
-        # Return neutral RSI value if calculation fails
         return 50.0
-
-def calculate_atr(prices: pd.DataFrame, period: int = 14) -> float:
-    """
-    Calculate the Average True Range (ATR) using Wilder's method.
-    ATR measures market volatility by decomposing the entire range of an asset price.
     
-    Args:
-        prices: DataFrame with High, Low, Close prices
-        period: ATR period (default 14 days)
+
+def calculate_atr(prices: pd.Series, period: int = 14) -> float:
+    """
+    Calculate Average True Range (ATR) for a given stock ticker.
+    
+    Parameters:
+    ticker (str): Stock ticker symbol
+    period (int): Look-back period for ATR calculation (default: 14)
+    start_date (str): Start date in 'YYYY-MM-DD' format (optional)
+    end_date (str): End date in 'YYYY-MM-DD' format (optional)
     
     Returns:
-        float: ATR value
+    pd.Series: ATR values for the specified period
     """
-    try:
-        # Extract price data
-        high = prices['High']
-        low = prices['Low']
-        close = prices['Close']
-        prev_close = close.shift(1)
-        
-        # Calculate the three different True Range values
-        tr1 = high - low  # Current high - current low
-        tr2 = abs(high - prev_close)  # Current high - previous close
-        tr3 = abs(low - prev_close)  # Current low - previous close
-        
-        # True Range is the maximum of these three values
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        
-        # Calculate ATR using exponential moving average
-        atr = tr.ewm(span=period, adjust=False).mean()
-        
-        return float(atr.iloc[-1])
-    except Exception:
-        return 0.0
 
-def calculate_support_resistance(prices: pd.Series, window: int = 20) -> tuple[float, float]:
-    """
-    Calculate support and resistance levels using rolling min/max method.
+    # Calculate True Range
+    prices['High-Low'] = prices['High'] - prices['Low']
+    prices['High-PrevClose'] = abs(prices['High'] - prices['Close'].shift(1))
+    prices['Low-PrevClose'] = abs(prices['Low'] - prices['Close'].shift(1))
     
-    Args:
-        prices: Series of closing prices
-        window: Period for calculation (default 20 days)
+    prices['True_Range'] = prices[['High-Low', 'High-PrevClose', 'Low-PrevClose']].max(axis=1)
     
-    Returns:
-        tuple: (support_level, resistance_level)
-    """
+    # Calculate ATR
+    prices['ATR'] = prices['True_Range'].rolling(window=period).mean()
+    
+    return float(prices['ATR'].iloc[-1])
+
+# def calculate_support_resistance(prices: pd.Series, window: int = 20) -> tuple[float, float]:
+#     """
+#     Calculate support and resistance levels using rolling min/max method.
+    
+#     Args:
+#         prices: Series of closing prices
+#         window: Period for calculation (default 20 days)
+    
+#     Returns:
+#         tuple: (support_level, resistance_level)
+#     """
+#     try:
+#         support = prices.rolling(window=window).min().iloc[-1]
+#         resistance = prices.rolling(window=window).max().iloc[-1]
+#         return float(support), float(resistance)
+#     except Exception:
+#         avg_price = prices.mean()
+#         return float(avg_price), float(avg_price)
+
+
+def get_basic_stock_info(symbol: str) -> dict:
+    """Helper function to fetch basic stock information"""
     try:
-        support = prices.rolling(window=window).min().iloc[-1]
-        resistance = prices.rolling(window=window).max().iloc[-1]
-        return float(support), float(resistance)
-    except Exception:
-        # Return average price as both support and resistance if calculation fails
-        avg_price = prices.mean()
-        return float(avg_price), float(avg_price)
+        stock = yf.Ticker(symbol)
+        hist = stock.history(period="1y")
+        info = stock.info
+        
+        if hist.empty:
+            return None
+            
+        avg_volume = hist['Volume'].sum()
+        current_price = hist['Close'].iloc[-1]
+        
+        return {
+            'symbol': symbol,
+            'price': current_price,
+            'volume': avg_volume,
+            'market_cap': info.get('marketCap', 0),
+            'sector': info.get('sector', 'Unknown'),
+            'raw_info': info,
+            'data_quality': {
+                'has_price': not pd.isna(current_price),
+                'has_volume': not pd.isna(avg_volume),
+                'price_above_zero': current_price > 0,
+                'volume_above_zero': avg_volume > 0
+            }
+        }
+    except Exception as e:
+        st.warning(f"Error fetching data for {symbol}: {str(e)}")
+        return None
+
+
+
 
 def screen_stocks(state: AgentState) -> AgentState:
     """
@@ -117,107 +141,55 @@ def screen_stocks(state: AgentState) -> AgentState:
     """
     state['debug_info'] = {'screening_step': {}}
     
-    def get_basic_stock_info(symbol: str) -> dict:
-        """Helper function to fetch basic stock information"""
-        try:
-            stock = yf.Ticker(symbol)
-            hist = stock.history(period="1mo")
-            info = stock.info
-            
-            if hist.empty:
-                return None
-                
-            avg_volume = hist['Volume'].mean()
-            current_price = hist['Close'].iloc[-1]
-            
-            return {
-                'symbol': symbol,
-                'price': current_price,
-                'volume': avg_volume,
-                'market_cap': info.get('marketCap', 0),
-                'sector': info.get('sector', 'Unknown'),
-                'raw_info': info,
-                'data_quality': {
-                    'has_price': not pd.isna(current_price),
-                    'has_volume': not pd.isna(avg_volume),
-                    'price_above_zero': current_price > 0,
-                    'volume_above_zero': avg_volume > 0
-                }
-            }
-        except Exception as e:
-            st.warning(f"Error fetching data for {symbol}: {str(e)}")
-            return None
-
- 
-    base_stocks = {
-        'Test': ['AVGO', 'APP', 'CIEN', 'MELI', 'RGTI', 'PLTR', 'MAGS', 'TSLA', 'IBKR', 'CRWD', 'BLK', 'SPY', 'VGT'],
-        'Technology': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NVDA', 'AMD', 'INTC'],
-        # 'Financial': ['JPM', 'BAC', 'WFC', 'GS', 'MS'],
-        # 'Healthcare': ['JNJ', 'PFE', 'UNH', 'ABBV', 'MRK'],
-        # 'Consumer': ['WMT', 'PG', 'KO', 'PEP', 'DIS'],
-        # 'Industrial': ['BA', 'CAT', 'GE', 'HON', 'MMM']
-        
-    }
-
-    # progress_bar = st.progress(0)
-    # total_stocks = sum(len(stocks) for stocks in base_stocks.values())
     stocks_processed = 0
     valid_stocks = []
     screening_results = {}
 
-    for sector, stocks in base_stocks.items():
-        st.info(f"Processing {sector} sector...")
-        
-        for symbol in stocks:
-            stocks_processed += 1
-            # progress_bar.progress(stocks_processed / total_stocks)
+    for symbol in state['screened_stocks']:
+        st.info(f"Processing {symbol}....")
+        stocks_processed += 1
 
-            stock_info = get_basic_stock_info(symbol)
+        stock_info = get_basic_stock_info(symbol)
+        
+        if stock_info:
+            passed = True
+            reasons = []
             
-            if stock_info:
-                passed = True
-                reasons = []
+            if stock_info['price'] < 1:
+                reasons.append(f"Price (${stock_info['price']:.2f}) below $1")
+                passed = False
                 
-                # Apply screening criteria
-                if stock_info['price'] < 1:
-                    reasons.append(f"Price (${stock_info['price']:.2f}) below $1")
-                    passed = False
-                    
-                if stock_info['volume'] < 100000:
-                    reasons.append(f"Volume ({stock_info['volume']:.0f}) below 100,000")
-                    passed = False
-                
-                screening_results[symbol] = {
-                    'sector': sector,
-                    'passed': passed,
-                    'reasons': reasons,
-                    'data': stock_info
-                }
-                
-                if passed:
-                    valid_stocks.append(symbol)
-                else:
-                    st.warning(f"❌ {symbol} failed screening: {reasons}")
+            if stock_info['volume'] < 100000:
+                reasons.append(f"Volume ({stock_info['volume']:.0f}) below 100,000")
+                passed = False
+            
+            screening_results[symbol] = {
+                'sector': stock_info.get('sector', 'Unknown'),
+                'passed': passed,
+                'reasons': reasons,
+                'data': stock_info
+            }
+            
+            if passed:
+                valid_stocks.append(symbol)
+            else:
+                st.warning(f"❌ {symbol} failed screening: {reasons}")
 
     if valid_stocks:
-        # Sort stocks by volume and take top 20
         valid_stocks.sort(
             key=lambda x: screening_results[x]['data']['volume'],
             reverse=True
         )
-        selected_stocks = valid_stocks
-        
-        state['screened_stocks'] = selected_stocks
+        state['screened_stocks'] = valid_stocks
         state['debug_info']['screening_step'] = {
             'method': 'enhanced_screening',
             'success': True,
-            'stocks_found': len(selected_stocks),
+            'stocks_found': len(valid_stocks),
             'total_processed': len(screening_results),
             'screening_results': screening_results
         }
     else:
-        # Fallback to baseline stocks if no stocks pass screening
-        fallback_stocks = ['AAPL', 'MSFT', 'GOOGL']
+        fallback_stocks = ['GOOGL']
         state['screened_stocks'] = fallback_stocks
         state['debug_info']['screening_step'] = {
             'method': 'fallback',
@@ -238,18 +210,16 @@ def fetch_stock_data(state: AgentState) -> AgentState:
     for symbol in state['screened_stocks']:
         try:
             stock = yf.Ticker(symbol)
-            hist = stock.history(period="1mo")
+            hist = stock.history(period="1y")
             
             if not hist.empty:
-                # Calculate ATR and volatility metrics
                 atr_value = calculate_atr(hist)
+
                 current_price = float(hist['Close'].iloc[-1])
                 atr_percent = (atr_value / current_price) * 100
                 
-                # Calculate support and resistance
-                support, resistance = calculate_support_resistance(hist['Close'])
+                # support, resistance = calculate_support_resistance(hist['Close'])
                 
-                # Calculate price levels for risk management
                 stop_loss = current_price - (atr_value * 2)
                 take_profit = current_price + (atr_value * 3)
                 risk_reward = (take_profit - current_price) / (current_price - stop_loss) if stop_loss != current_price else 0
@@ -268,8 +238,8 @@ def fetch_stock_data(state: AgentState) -> AgentState:
                     "rsi": calculate_rsi(hist['Close']),
                     "atr": atr_value,
                     "atr_percent": atr_percent,
-                    "support": support,
-                    "resistance": resistance,
+                    # "support": support,
+                    # "resistance": resistance,
                     "stop_loss": stop_loss,
                     "take_profit": take_profit,
                     "risk_reward": risk_reward,
@@ -307,20 +277,18 @@ def generate_insights(state: AgentState, llm: ChatOpenAI) -> AgentState:
         try:
             stock_data = state['stock_data'][symbol]
             
-            # Calculate additional context metrics
             atr_percent = stock_data['atr_percent']
             volatility_state = "high" if atr_percent > 3 else "moderate" if atr_percent > 1.5 else "low"
             
-            # Calculate price position relative to support/resistance
             current_price = stock_data['current_price']
-            support = stock_data['support']
-            resistance = stock_data['resistance']
+            # support = stock_data['support']
+            # resistance = stock_data['resistance']
             
-            support_distance = ((current_price - support) / support) * 100
-            resistance_distance = ((resistance - current_price) / current_price) * 100
+            # support_distance = ((current_price - support) / support) * 100
+            # resistance_distance = ((resistance - current_price) / current_price) * 100
             
-            range_size = resistance - support
-            position_in_range = ((current_price - support) / range_size) * 100 if range_size > 0 else 50
+            # range_size = resistance - support
+            # position_in_range = ((current_price - support) / range_size) * 100 if range_size > 0 else 50
             
             prompt = f"""
             Analyze the following technical indicators for {symbol}:
@@ -328,9 +296,6 @@ def generate_insights(state: AgentState, llm: ChatOpenAI) -> AgentState:
             Price Action:
             - Current Price: ${current_price:.2f}
             - Price Change: {stock_data['price_change']:.2f}%
-            - Support Level: ${support:.2f} ({support_distance:.1f}% away)
-            - Resistance Level: ${resistance:.2f} ({resistance_distance:.1f}% away)
-            - Position in Range: {position_in_range:.1f}%
 
             Volatility Analysis:
             - ATR: ${stock_data['atr']:.2f} ({stock_data['atr_percent']:.2f}% of price)
@@ -356,19 +321,20 @@ def generate_insights(state: AgentState, llm: ChatOpenAI) -> AgentState:
             3. Momentum signals and potential trade setups with specific entry/exit points
             4. Risk management considerations based on ATR and volatility bands
             """
+
+            st.info("Running AI Analysis ...")
             
             analysis = llm.invoke(prompt)
             state['analysis'][symbol] = analysis
             state['decisions'][symbol] = "PENDING"
             
-            # Store analysis metrics for debugging
             if 'analysis_metrics' not in state['debug_info']:
                 state['debug_info']['analysis_metrics'] = {}
             
             state['debug_info']['analysis_metrics'][symbol] = {
-                'support_distance': support_distance,
-                'resistance_distance': resistance_distance,
-                'position_in_range': position_in_range,
+                # 'support_distance': support_distance,
+                # 'resistance_distance': resistance_distance,
+                # 'position_in_range': position_in_range,
                 'volatility_state': volatility_state
             }
             
@@ -508,12 +474,13 @@ def main():
     
     with st.sidebar:
         st.header("Configuration")
-        
+
+        symbol = st.sidebar.text_input("Enter Stock Symbol:")
         
         if st.button("Run Analysis"):
             
             try:
-                llm = ChatOpenAI(model="o1-mini", api_key=api_key)
+                llm = ChatOpenAI(model="gpt-4-turbo", api_key=api_key)
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
@@ -523,7 +490,7 @@ def main():
                 
                 initial_state = AgentState(
                     messages=[],
-                    screened_stocks=[],
+                    screened_stocks=[symbol],
                     stock_data={},
                     analysis={},
                     decisions={},
@@ -569,8 +536,8 @@ def main():
                         'Change %': f"{stock_data['price_change']:.2f}%",
                         'RSI': f"{stock_data['rsi']:.1f}",
                         'Volume': f"{stock_data['volume']:,.0f}",
-                        'Support': f"${stock_data['support']:.2f}",
-                        'Resistance': f"${stock_data['resistance']:.2f}",
+                        # 'Support': f"${stock_data['support']:.2f}",
+                        # 'Resistance': f"${stock_data['resistance']:.2f}",
                         'ATR': f"${stock_data['atr']:.2f}",
                         'Stop Loss': f"${stock_data['stop_loss']:.2f}",
                         'Take Profit': f"${stock_data['take_profit']:.2f}",
@@ -582,41 +549,36 @@ def main():
             if results_data:
                 df = pd.DataFrame(results_data)
                 
-                def color_decision(val):
-                    """Apply color coding to trading decisions"""
-                    if pd.isna(val):
-                        return ''
-                    val = str(val).upper()
-                    if 'STRONG BUY' in val:
-                        return 'background-color: darkgreen; color: white'
-                    elif 'BUY' in val:
-                        return 'background-color: lightgreen'
-                    elif 'SELL' in val:
-                        return 'background-color: salmon'
-                    elif 'STRONG SELL' in val:
-                        return 'background-color: darkred; color: white'
-                    return ''
+                # Transpose the first row of data (since we're only analyzing one stock at a time)
+                if len(df) > 0:
+                    transposed_df = pd.DataFrame(df.iloc[0]).reset_index()
+                    transposed_df.columns = ['Metric', 'Value']
+                    
+                    # Apply styling using st.table with custom HTML
+                    def style_row(row):
+                        if row['Metric'] == 'Trading Decision':
+                            decision = str(row['Value']).upper()
+                            if 'STRONG BUY' in decision:
+                                return ['background-color: darkgreen; color: white'] * len(row)
+                            elif 'BUY' in decision:
+                                return ['background-color: lightgreen'] * len(row)
+                            elif 'SELL' in decision:
+                                return ['background-color: salmon'] * len(row)
+                            elif 'STRONG SELL' in decision:
+                                return ['background-color: darkred; color: white'] * len(row)
+                        return [''] * len(row)
+                    
+                    styled_df = transposed_df.style.apply(style_row, axis=1)
+                    st.table(styled_df)
                 
-
-                if 'Trading Decision' in df.columns:
-                    try:
-
-                        styled_df = df.style.applymap(color_decision, subset=['Trading Decision'])
-                        st.dataframe(styled_df, use_container_width=True)
-                    except Exception as e:
-                        st.error("Error applying styling, displaying unstyled DataFrame")
-                        st.dataframe(df, use_container_width=True)
-                else:
-                    st.dataframe(df, use_container_width=True)
-                
-
-                csv = df.to_csv(index=False)
-                st.download_button(
-                    label="Download Analysis Results",
-                    data=csv,
-                    file_name="stock_analysis.csv",
-                    mime="text/csv"
-                )
+                # Keep the download button
+                # csv = df.to_csv(index=False)
+                # st.download_button(
+                #     label="Download Analysis Results",
+                #     data=csv,
+                #     file_name="stock_analysis.csv",
+                #     mime="text/csv"
+                # )
             else:
                 st.warning("No valid results to display")
         else:
